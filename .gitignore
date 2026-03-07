@@ -1,0 +1,7 @@
+# skipping executables in root directory
+*.exe
+*.out
+*.o
+
+# skipping build directories
+bin/*
