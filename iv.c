@@ -13,6 +13,72 @@
 #include "png_util.h"
 #include "other_util.h"
 
+/********************* Global Variables *********************/
+png_bytep *row_pointers = NULL; // global row pointers variable
+int width, height;              // global width and height variables
+
+void fillSurfaceWithImageRowPointers(SDL_Surface *surface, png_bytep *row_pointers, int current_width, int current_height)
+{
+    printf("Filling surface with image data...\n");
+
+    SDL_LockSurface(surface);
+
+    // Calculate current surface pitch (number of pixels per row) and get the pixel data pointer
+    int pitch = surface->pitch / 4;
+    Uint32 *pixels = (Uint32 *)surface->pixels;
+
+    for (int y = 0; y < current_height; y++)
+    {
+        png_bytep row = row_pointers[y];
+        for (int x = 0; x < current_width; x++)
+        {
+            png_bytep px = &(row[x * 4]);
+            int r = px[0];
+            int g = px[1];
+            int b = px[2];
+            int a = px[3];
+
+            Uint32 color = SDL_MapRGBA(surface->format, r, g, b, a);
+            // pixel.x = x;
+            // pixel.y = y;
+            // SDL_FillRect(surface, &pixel, color); // Fill red
+
+            pixels[y * pitch + x] = color;
+        }
+    }
+
+    SDL_UnlockSurface(surface);
+}
+
+// window resizing event watcher function
+static int resizingEventWatcher(void *data, SDL_Event *event)
+{
+    if (event->type == SDL_WINDOWEVENT &&
+        event->window.event == SDL_WINDOWEVENT_RESIZED)
+    {
+        SDL_Window *window = SDL_GetWindowFromID(event->window.windowID);
+        if (window == (SDL_Window *)data)
+        {
+            // int new_width, new_height;
+            // SDL_GetWindowSize(window, &new_width, &new_height);
+            int new_width = event->window.data1;
+            int new_height = event->window.data2;
+            if (new_width > width || new_height > height)
+            {
+                printf("New dimensions exceed original image dimensions. Ignoring resize event.\n");
+                return 0;
+            }
+            else
+            {
+                fillSurfaceWithImageRowPointers(SDL_GetWindowSurface(window), row_pointers, new_width, new_height);
+                SDL_UpdateWindowSurface(window);
+            }
+            printf("width: %d, height: %d\n", new_width, new_height);
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     // printf("Hello, World!\n");
@@ -41,8 +107,8 @@ int main(int argc, char *argv[])
     png_structp png = NULL;
     png_infop info = NULL;
 
-    png_bytep *row_pointers = NULL;
-    int width = 0, height = 0;
+    // png_bytep *row_pointers = NULL;
+    // int width = 0, height = 0;
 
     if (strcmp(extension, "png") == 0)
     {
@@ -65,7 +131,7 @@ int main(int argc, char *argv[])
         png_byte color_type = png_get_color_type(png, info);
         png_byte bit_depth = png_get_bit_depth(png, info);
 
-        // Normalize format
+        // Normalizing format
         if (bit_depth == 16)
         {
             png_set_strip_16(png);
@@ -103,6 +169,7 @@ int main(int argc, char *argv[])
 
         png_read_update_info(png, info);
 
+        // populating row pointers with image data
         row_pointers = malloc(sizeof(png_bytep) * height);
 
         for (int y = 0; y < height; y++)
@@ -124,7 +191,7 @@ int main(int argc, char *argv[])
         cinfo.out_color_space = JCS_RGB;
 
         jpeg_start_decompress(&cinfo);
-        printf("RAM Address for file: %p\n", &cinfo);
+        // printf("RAM Address for file: %p\n", &cinfo);
 
         width = cinfo.output_width;
         height = cinfo.output_height;
@@ -132,6 +199,7 @@ int main(int argc, char *argv[])
         int channels = cinfo.output_components;
         int row_stride = width * channels;
 
+        // populating row pointers with image data
         row_pointers = malloc(sizeof(png_bytep) * height);
 
         for (int y = 0; y < height; y++)
@@ -172,39 +240,35 @@ int main(int argc, char *argv[])
         "Image Viewer",                                 // window title
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, // initial position
         width, height,                                  // width and height
-        0                                               // flags
-    );
-    SDL_Surface *psurface = SDL_GetWindowSurface(pwindow);
-    // Uint8 r, g, b;
-    // r = 0xFF; g = 0x00; b= 0x00;
-    // Uint32 color = SDL_MapRGB(psurface -> format, r, g, b); // Map RGB red color
-    SDL_Rect pixel = (SDL_Rect){0, 0, 1, 1};
-    for (int y = 0; y < height; y++)
-    {
-        png_bytep row = row_pointers[y];
-        for (int x = 0; x < width; x++)
-        {
-            png_bytep px = &(row[x * 4]);
-            int r = px[0];
-            int g = px[1];
-            int b = px[2];
-            int a = px[3];
+        SDL_WINDOW_RESIZABLE                            // flags
 
-            Uint32 color = SDL_MapRGBA(psurface->format, r, g, b, a);
-            pixel.x = x;
-            pixel.y = y;
-            SDL_FillRect(psurface, &pixel, color); // Fill red
-        }
-    }
+    );
+    // SDL_SetWindowResizable(pwindow, SDL_TRUE);
+
+    // setting maximum and minimum window size
+    SDL_SetWindowMaximumSize(pwindow, width, height);
+    SDL_SetWindowMinimumSize(pwindow, 300, 300);
+
+    // event watcher for window resizing
+    SDL_AddEventWatch(resizingEventWatcher, pwindow);
+
+    SDL_Surface *psurface = SDL_GetWindowSurface(pwindow);
+    psurface = SDL_GetWindowSurface(pwindow);
+
+    // filling surface with initial image data
+    fillSurfaceWithImageRowPointers(psurface, row_pointers, width, height);
+
     SDL_UpdateWindowSurface(pwindow);
     // SDL_Delay(10000);
     while (1)
     {
         SDL_Event pevent;
-        SDL_PollEvent(&pevent);
-        if (pevent.type == SDL_QUIT)
+        if (SDL_WaitEvent(&pevent)) // blocks until event arrives
         {
-            break;
+            if (pevent.type == SDL_QUIT)
+            {
+                break;
+            }
         }
     }
     // free(row_pointers);
